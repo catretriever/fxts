@@ -39,4 +39,16 @@ class TEngine():
             self.sigGens[siggen].printSignal()
 
     def refreshAllSignals(self):
-        pass
+        """Recalculate all signal generators using the instrument's current prices."""
+        if self.instrument is None:
+            return
+        prices = self.instrument.prices
+        for name, sg in self.sigGens.items():
+            state = sg.refreshSignal(prices)
+            label = {1: 'LONG', -1: 'SHORT', 0: 'FLAT'}.get(state['signal'], '?')
+            if state['fast_ma'] is not None:
+                self.logger("Signal [%s]: %s  fast_ma=%.5f  slow_ma=%.5f"
+                            % (name, label, state['fast_ma'], state['slow_ma']))
+            else:
+                self.logger("Signal [%s]: insufficient data (need %s bars)"
+                            % (name, sg.nMA6_1))

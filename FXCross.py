@@ -69,6 +69,10 @@ class FXCross():
     def insertPrice(self, timestamp, O, H, L, C):
         pass
 
+    def refresh(self):
+        """Re-fetch prices from the data store using the configured element count."""
+        self.reloadPrices(_get_price_elements())
+
     def reloadPrices(self, dataPeriod):
         self.logger("Reloading prices for: %s" % self.crossName)
         try:

@@ -62,7 +62,7 @@ def build_config(args):
 # ---------------------------------------------------------------------------
 
 VERIFY_QUERY = """
-SELECT 'FXCross'           AS tbl, COUNT(*) AS rows FROM FXCross
+SELECT 'FXCross'           AS tbl, COUNT(*) AS row_count FROM FXCross
 UNION ALL SELECT 'HourlyData',         COUNT(*) FROM HourlyData
 UNION ALL SELECT 'TEngine',            COUNT(*) FROM TEngine
 UNION ALL SELECT 'MAP_Pfo_TEngine',    COUNT(*) FROM MAP_Pfo_TEngine
@@ -129,7 +129,7 @@ def verify(conn, db_name):
     print(f"\n{'Table':<25} {'Rows':>6}")
     print('-' * 33)
     for row in rows:
-        print(f"{row['tbl']:<25} {row['rows']:>6}")
+        print(f"{row['tbl']:<25} {row['row_count']:>6}")
     print()
 
 

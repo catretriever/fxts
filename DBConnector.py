@@ -1,4 +1,5 @@
 # DBConnector.py - Database readers and writers
+# Database: MariaDB 10.6+  (PyMySQL driver — wire-compatible with MariaDB)
 import sys
 import os
 import configparser
@@ -17,7 +18,7 @@ def _load_config():
     cfg.read(cfg_path)
     return {
         'host':   os.environ.get('FXDB_HOST',   cfg.get('database', 'host',   fallback='localhost')),
-        'user':   os.environ.get('FXDB_USER',   cfg.get('database', 'user',   fallback='')),
+        'user':   os.environ.get('FXDB_USER',   cfg.get('database', 'user',   fallback='fxts')),
         'passwd': os.environ.get('FXDB_PASSWD', cfg.get('database', 'passwd', fallback='')),
         'db':     os.environ.get('FXDB_NAME',   cfg.get('database', 'db',     fallback='FXDB')),
     }

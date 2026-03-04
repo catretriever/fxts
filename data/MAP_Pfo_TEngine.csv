@@ -1,3 +1,9 @@
 Id,Portfolio,TEngine,Weight
-1,FX Portfolio 1,GBPJPYeng01,0.6000
-2,FX Portfolio 1,EURUSDeng01,0.4000
+1,FX Portfolio 1,GBPJPYeng01,0.1250
+2,FX Portfolio 1,EURUSDeng01,0.1250
+3,FX Portfolio 1,GBPUSDeng01,0.1250
+4,FX Portfolio 1,USDJPYeng01,0.1250
+5,FX Portfolio 1,USDCADeng01,0.1250
+6,FX Portfolio 1,EURGBPeng01,0.1250
+7,FX Portfolio 1,EURJPYeng01,0.1250
+8,FX Portfolio 1,EURCADeng01,0.1250

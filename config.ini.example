@@ -1,19 +1,15 @@
 # FXTS configuration — copy to config.ini and fill in your values.
 # config.ini is listed in .gitignore and must never be committed.
 #
-# Each setting can also be overridden by an environment variable:
-#   FXDB_HOST, FXDB_USER, FXDB_PASSWD, FXDB_NAME
-#   FXTS_PORTFOLIO, FXTS_PRICE_ELEMENTS
+# FXDB_DATA_DIR environment variable overrides the data_dir setting below.
 
 [database]
-# MariaDB connection details
-host   = localhost
-user   = fxts
-passwd = changeme
-db     = FXDB
+# Path to the directory containing the CSV data files.
+# Defaults to the data/ subdirectory next to this file.
+data_dir = /path/to/fxts/data
 
 [portfolio]
-# Name must match a Portfolio value in MAP_Pfo_TEngine
+# Name must match a Portfolio value in MAP_Pfo_TEngine.csv
 name = FX Portfolio 1
 
 [fxcross]

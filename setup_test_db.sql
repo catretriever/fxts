@@ -1,11 +1,20 @@
 -- =============================================================================
--- FXTS Test Database Setup Script
+-- FXTS Test Database Setup Script  (MariaDB 10.6+)
 -- =============================================================================
 -- Creates schema and loads sample data for development/testing.
--- Usage:
---   mysql -u <user> -p < setup_test_db.sql
--- Or to target a specific host:
---   mysql -h <host> -u <user> -p < setup_test_db.sql
+--
+-- Quick start:
+--   mariadb -u fxts -p FXDB < setup_test_db.sql
+--
+-- First-time user/database creation (run as root):
+--   mariadb -u root -e "
+--     CREATE DATABASE IF NOT EXISTS FXDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--     CREATE USER IF NOT EXISTS 'fxts'@'localhost' IDENTIFIED BY 'changeme';
+--     GRANT ALL PRIVILEGES ON FXDB.* TO 'fxts'@'localhost';
+--     FLUSH PRIVILEGES;"
+--
+-- Or via setup_test_db.py:
+--   python3 setup_test_db.py --user fxts --passwd changeme
 -- =============================================================================
 
 -- Create and select database

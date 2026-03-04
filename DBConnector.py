@@ -1,13 +1,12 @@
 # DBConnector.py - Database readers and writers
+# Database: text files (CSV) in the data/ directory
 import sys
 import os
+import csv
 import configparser
 import traceback
 import datetime as date
 import time as tm
-
-import pymysql
-import pymysql.cursors
 
 
 def _load_config():
@@ -15,11 +14,10 @@ def _load_config():
     cfg = configparser.ConfigParser()
     cfg_path = os.path.join(os.path.dirname(__file__), 'config.ini')
     cfg.read(cfg_path)
+    default_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
     return {
-        'host':   os.environ.get('FXDB_HOST',   cfg.get('database', 'host',   fallback='localhost')),
-        'user':   os.environ.get('FXDB_USER',   cfg.get('database', 'user',   fallback='')),
-        'passwd': os.environ.get('FXDB_PASSWD', cfg.get('database', 'passwd', fallback='')),
-        'db':     os.environ.get('FXDB_NAME',   cfg.get('database', 'db',     fallback='FXDB')),
+        'data_dir': os.environ.get('FXDB_DATA_DIR',
+                                   cfg.get('database', 'data_dir', fallback=default_data_dir)),
     }
 
 
@@ -33,234 +31,187 @@ class FXDB():
     def __init__(self, log):
         self.logger = log
         self._cfg = _load_config()
-        self.conn = self._connect()
+        self._data_dir = self._cfg['data_dir']
+        self._connect()
 
     def _connect(self):
-        """Open a new connection and return it."""
-        conn = pymysql.connect(
-            host=self._cfg['host'],
-            user=self._cfg['user'],
-            passwd=self._cfg['passwd'],
-            db=self._cfg['db'],
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT VERSION()")
-            row = cursor.fetchone()
-            self.logger("DB connection established. Server version: %s" % row['VERSION()'])
-        return conn
+        if not os.path.isdir(self._data_dir):
+            raise FileNotFoundError("Data directory not found: %s" % self._data_dir)
+        self.logger("File-based DB ready. Data directory: %s" % self._data_dir)
+
+    def _table_path(self, name):
+        return os.path.join(self._data_dir, name + '.csv')
+
+    def _read(self, table):
+        path = self._table_path(table)
+        try:
+            with open(path, newline='', encoding='utf-8') as f:
+                return list(csv.DictReader(f))
+        except FileNotFoundError:
+            return []
+
+    def _append(self, table, rows, fieldnames):
+        path = self._table_path(table)
+        exists = os.path.isfile(path)
+        next_id = len(self._read(table)) + 1
+        with open(path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['Id'] + fieldnames)
+            if not exists:
+                writer.writeheader()
+            for i, row in enumerate(rows):
+                out = {'Id': next_id + i}
+                out.update({k: row.get(k, '') for k in fieldnames})
+                writer.writerow(out)
 
     #===========================================================================
     # closeConnection
     #===========================================================================
     def closeConnection(self):
-        try:
-            self.conn.close()
-            self.logger("DB connection closed")
-        except Exception as e:
-            self.logger("Unable to close connection: %s" % e)
-            raise
+        self.logger("File-based DB closed")
 
     #===========================================================================
     # openConnection
     #===========================================================================
     def openConnection(self):
-        try:
-            self.conn = self._connect()
-        except Exception as e:
-            self.logger("Failed to open connection: %s" % e)
-            raise
+        self._connect()
 
     #===========================================================================
     # loadFXCross
     #===========================================================================
     def loadFXCross(self, crossname):
-        query = "SELECT BaseCcy, QuoteCcy, Scalar, IP FROM FXCross WHERE FXCross = %s"
+        query = "FXCross.csv WHERE FXCross = %s"
         self.logger(query % crossname)
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (crossname,))
-                return cursor.fetchone()
-        except Exception as e:
-            self.logger("loadFXCross failed: %s\n%s" % (e, traceback.format_exc()))
-            return None
+        for r in self._read('FXCross'):
+            if r.get('FXCross') == crossname:
+                return r
+        return None
 
     #===========================================================================
     # loadFXPrices
     #===========================================================================
     def loadFXPrices(self, crossname, elements):
-        query = "SELECT * FROM HourlyData WHERE ticker = %s ORDER BY Date DESC, Time DESC LIMIT %s"
+        query = "HourlyData.csv WHERE ticker = %s ORDER BY Date DESC, Time DESC LIMIT %s"
         self.logger(query % (crossname, elements))
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (crossname, elements))
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger("loadFXPrices failed: %s\n%s" % (e, traceback.format_exc()))
-            return []
+        rows = [r for r in self._read('HourlyData') if r.get('ticker') == crossname]
+        rows.sort(key=lambda r: (r.get('Date', ''), r.get('Time', '')), reverse=True)
+        return rows[:int(elements)]
 
     #===========================================================================
     # loadMappedTEngines
     #===========================================================================
     def loadMappedTEngines(self, portfolio):
-        query = "SELECT Id, TEngine, Weight FROM MAP_Pfo_TEngine WHERE Portfolio = %s"
+        query = "MAP_Pfo_TEngine.csv WHERE Portfolio = %s"
         self.logger(query % portfolio)
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (portfolio,))
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger("loadMappedTEngines failed: %s\n%s" % (e, traceback.format_exc()))
-            return []
+        return [r for r in self._read('MAP_Pfo_TEngine') if r.get('Portfolio') == portfolio]
 
     #===========================================================================
     # loadTEngine
     #===========================================================================
     def loadTEngine(self, engine):
-        query = "SELECT Id, TEngine, Instrument FROM TEngine WHERE TEngine = %s"
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (engine,))
-                return cursor.fetchone()
-        except Exception as e:
-            self.logger("loadTEngine failed: %s\n%s" % (e, traceback.format_exc()))
-            return None
+        for r in self._read('TEngine'):
+            if r.get('TEngine') == engine:
+                return r
+        return None
 
     #===========================================================================
     # loadMappedSigGens
     #===========================================================================
     def loadMappedSigGens(self, tengine):
-        query = "SELECT Id, SigGen FROM MAP_TEngine_SigGen WHERE TEngine = %s"
+        query = "MAP_TEngine_SigGen.csv WHERE TEngine = %s"
         self.logger(query % tengine)
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (tengine,))
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger("loadMappedSigGens failed: %s\n%s" % (e, traceback.format_exc()))
-            return []
+        return [r for r in self._read('MAP_TEngine_SigGen') if r.get('TEngine') == tengine]
 
     #===========================================================================
     # loadSigGen
     #===========================================================================
     def loadSigGen(self, siggen, sigtype):
         if sigtype == 'TP':
-            query = "SELECT Id, SigGen, nMA6, nMA6_1 FROM SigGenTP WHERE SigGen = %s"
+            table = 'SigGenTP'
         else:
             raise ValueError("Unknown SigGen type: %s" % sigtype)
-
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (siggen,))
-                return cursor.fetchone()
-        except Exception as e:
-            self.logger("loadSigGen failed: %s\n%s" % (e, traceback.format_exc()))
-            return None
+        for r in self._read(table):
+            if r.get('SigGen') == siggen:
+                return r
+        return None
 
     #===========================================================================
     # findLastPriceDate
     #===========================================================================
     def findLastPriceDate(self, mktCode, deliveryCode):
-        query = "SELECT MAX(TSDate) AS max_date FROM futures_data WHERE Instrument_ID = %s AND NM = %s"
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (mktCode, deliveryCode))
-                row = cursor.fetchone()
-                if row['max_date'] is None:
-                    return '19000101'
-                return row['max_date']
-        except Exception as e:
-            self.logger("findLastPriceDate failed: %s\n%s" % (e, traceback.format_exc()))
-            return '19000101'
+        dates = [
+            r['TSDate'] for r in self._read('futures_data')
+            if r.get('Instrument_ID') == mktCode and r.get('NM') == deliveryCode and r.get('TSDate')
+        ]
+        return max(dates) if dates else '19000101'
 
     #===========================================================================
     # findPricesForDateRange
     #===========================================================================
     def findPricesForDateRange(self, mktCode, deliveryCode, startDate, endDate):
-        query = (
-            "SELECT TSDate, Instrument_ID, NM, PX_Open, PX_HIGH, PX_LOW, PX_CLOSE "
-            "FROM futures_data "
-            "WHERE Instrument_ID = %s AND NM = %s AND TSDate BETWEEN %s AND %s"
-        )
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (mktCode, deliveryCode, startDate, endDate))
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger("findPricesForDateRange failed for %s:%s: %s\n%s" % (
-                mktCode, deliveryCode, e, traceback.format_exc()))
-            raise
+        return [
+            r for r in self._read('futures_data')
+            if r.get('Instrument_ID') == mktCode
+            and r.get('NM') == deliveryCode
+            and startDate <= r.get('TSDate', '') <= endDate
+        ]
 
     #===========================================================================
     # findLastFXDate
     #===========================================================================
     def findLastFXDate(self, mktCode, dateFormat):
-        query = "SELECT MAX(TSDate) AS max_date FROM fx_data WHERE Instrument = %s"
         fallback = date.datetime.now().replace(month=3, day=1)
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (mktCode,))
-                row = cursor.fetchone()
-                if row['max_date'] is None:
-                    return fallback
-                strDate = str(row['max_date'])
-                return date.datetime(int(strDate[0:4]), int(strDate[4:6]), int(strDate[6:]))
-        except Exception as e:
-            self.logger("findLastFXDate failed: %s\n%s" % (e, traceback.format_exc()))
-            raise
+        dates = [
+            r['TSDate'] for r in self._read('fx_data')
+            if r.get('Instrument') == mktCode and r.get('TSDate')
+        ]
+        if not dates:
+            return fallback
+        strDate = max(dates)
+        return date.datetime(int(strDate[0:4]), int(strDate[4:6]), int(strDate[6:]))
 
     #===========================================================================
     # findLastStateTFDate
     #===========================================================================
     def findLastStateTFDate(self, mktCode, deliveryCode, engine):
-        query = (
-            "SELECT MAX(TSDate) AS max_date FROM state_tf_futures "
-            "WHERE Instrument = %s AND NM = %s AND Engine = %s"
-        )
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (mktCode, deliveryCode, engine))
-                row = cursor.fetchone()
-                if row['max_date'] is None:
-                    return '19000101'
-                return row['max_date']
-        except Exception as e:
-            self.logger("findLastStateTFDate failed: %s\n%s" % (e, traceback.format_exc()))
-            return '19000101'
+        dates = [
+            r['TSDate'] for r in self._read('state_tf_futures')
+            if r.get('Instrument') == mktCode
+            and r.get('NM') == deliveryCode
+            and r.get('Engine') == engine
+            and r.get('TSDate')
+        ]
+        return max(dates) if dates else '19000101'
 
     #===========================================================================
     # findActiveFXpairs
     #===========================================================================
     def findActiveFXpairs(self):
-        query = "SELECT Instrument, CONCAT(curncy1, curncy2) AS CcyPair FROM fx_table"
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger("findActiveFXpairs failed: %s\n%s" % (e, traceback.format_exc()))
-            return []
+        result = []
+        for r in self._read('fx_table'):
+            row = dict(r)
+            row['CcyPair'] = row.get('curncy1', '') + row.get('curncy2', '')
+            result.append(row)
+        return result
 
     #===========================================================================
     # storeFX
     #===========================================================================
     def storeFX(self, instr, rows):
-        sql = (
-            "INSERT INTO fx_data (Instrument, TSDate, PX_OPEN, PX_HIGH, PX_LOW, PX_CLOSE) "
-            "VALUES (%s, %s, %s, %s, %s, %s)"
-        )
+        fieldnames = ['Instrument', 'TSDate', 'PX_OPEN', 'PX_HIGH', 'PX_LOW', 'PX_CLOSE']
         try:
-            with self.conn.cursor() as cursor:
-                for r in rows:
-                    rdate = tm.strptime(r['Date'], "%m/%d/%Y")
-                    cursor.execute(sql, (
-                        instr,
-                        tm.strftime("%Y%m%d", rdate),
-                        r['First'], r['High'], r['Low'], r['Last'],
-                    ))
-            self.conn.commit()
+            records = []
+            for r in rows:
+                rdate = tm.strptime(r['Date'], "%m/%d/%Y")
+                records.append({
+                    'Instrument': instr,
+                    'TSDate':     tm.strftime("%Y%m%d", rdate),
+                    'PX_OPEN':   r['First'],
+                    'PX_HIGH':   r['High'],
+                    'PX_LOW':    r['Low'],
+                    'PX_CLOSE':  r['Last'],
+                })
+            self._append('fx_data', records, fieldnames)
         except Exception as e:
-            self.conn.rollback()
             self.logger("storeFX failed: %s\n%s" % (e, traceback.format_exc()))
             raise
 
@@ -268,41 +219,24 @@ class FXDB():
     # loadTFState
     #===========================================================================
     def loadTFState(self, mkt, nm, signal, lastDate):
-        query = (
-            "SELECT Instrument, Engine, TSDate, NM, FM, PX_OPEN, PX_HIGH, PX_LOW, PX_CLOSE, "
-            "FM_Close, ATR, `20EMA(ATR)`, EMAFast, EMASlow, Buffer, Sig "
-            "FROM state_tf_futures "
-            "WHERE Instrument = %s AND NM = %s AND Engine = %s AND TSDate = %s"
-        )
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query, (mkt, nm, signal, lastDate))
-                return cursor.fetchone()
-        except Exception as e:
-            self.logger("loadTFState failed: %s\n%s" % (e, traceback.format_exc()))
-            return None
+        for r in self._read('state_tf_futures'):
+            if (r.get('Instrument') == mkt and r.get('NM') == nm
+                    and r.get('Engine') == signal and r.get('TSDate') == str(lastDate)):
+                return r
+        return None
 
     #===========================================================================
     # storeTFState
     #===========================================================================
     def storeTFState(self, rows):
-        sql = (
-            "INSERT INTO state_tf_futures "
-            "(Instrument, Engine, TSDate, NM, FM, PX_OPEN, PX_HIGH, PX_LOW, PX_CLOSE, "
-            "FM_CLOSE, ATR, `20EMA(ATR)`, EMAFast, EMASlow, Buffer, Sig) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        )
+        fieldnames = [
+            'Instrument', 'Engine', 'TSDate', 'NM', 'FM',
+            'PX_OPEN', 'PX_HIGH', 'PX_LOW', 'PX_CLOSE', 'FM_CLOSE',
+            'ATR', '20EMA(ATR)', 'EMAFast', 'EMASlow', 'Buffer', 'Sig',
+        ]
         try:
-            with self.conn.cursor() as cursor:
-                for r in rows:
-                    cursor.execute(sql, (
-                        r['Instrument'], r['Engine'], r['TSDate'], r['NM'], r['FM'],
-                        r['PX_OPEN'], r['PX_HIGH'], r['PX_LOW'], r['PX_CLOSE'], r['FM_CLOSE'],
-                        r['ATR'], r['20EMA(ATR)'], r['EMAFast'], r['EMASlow'], r['Buffer'], r['Sig'],
-                    ))
-            self.conn.commit()
+            self._append('state_tf_futures', rows, fieldnames)
         except Exception as e:
-            self.conn.rollback()
             self.logger("storeTFState failed: %s\n%s" % (e, traceback.format_exc()))
             raise
 
@@ -310,11 +244,4 @@ class FXDB():
     # loadTFEngines
     #===========================================================================
     def loadTFEngines(self):
-        query = "SELECT Engine, Slow, Fast, Buffer FROM tf_engines"
-        try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                return cursor.fetchall()
-        except Exception as e:
-            self.logger("loadTFEngines failed: %s\n%s" % (e, traceback.format_exc()))
-            return []
+        return self._read('tf_engines')

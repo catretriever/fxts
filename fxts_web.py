@@ -16,6 +16,7 @@ Configuration (same as FXTSgui.py):
 
 import collections
 import configparser
+import datetime
 import json
 import os
 import queue
@@ -89,6 +90,41 @@ def _write_log(message, status='I'):
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'fxts-dev'
+
+# ---------------------------------------------------------------------------
+# Hourly price-refresh scheduler
+# ---------------------------------------------------------------------------
+
+_next_run_utc = None   # datetime of the next scheduled price fetch
+
+
+def _run_price_refresh():
+    """Background task: fetch prices then recalculate signals."""
+    global _portfolio
+    if _portfolio is None:
+        _write_log("Scheduler: portfolio not loaded, skipping refresh")
+        _schedule_next_refresh()
+        return
+    _write_log("Scheduler: starting hourly price refresh")
+    try:
+        _portfolio.refreshAllPrices()
+        _portfolio.refreshAllEntrySignals()
+        _write_log("Scheduler: refresh complete")
+    except Exception as e:
+        _write_log("Scheduler: refresh failed: %s\n%s" % (e, traceback.format_exc()), status='E')
+    _schedule_next_refresh()
+
+
+def _schedule_next_refresh():
+    """Schedule the next run at the top of the next UTC hour (+5 s buffer)."""
+    global _next_run_utc
+    now = datetime.datetime.utcnow()
+    _next_run_utc = (now + datetime.timedelta(hours=1)).replace(minute=0, second=5, microsecond=0)
+    delay = (_next_run_utc - now).total_seconds()
+    t = threading.Timer(delay, _run_price_refresh)
+    t.daemon = True
+    t.start()
+    _write_log("Scheduler: next price fetch at %s UTC" % _next_run_utc.strftime('%Y-%m-%d %H:%M:%S'))
 
 
 # ---- HTML template ---------------------------------------------------------
@@ -266,8 +302,22 @@ _TEMPLATE = r"""<!DOCTYPE html>
     border: 1px solid var(--border);
     color: var(--muted);
     font-family: monospace;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
+  .sig-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+  }
+  .sig-badge.LONG  { background: rgba(63,185,80,0.2);  color: var(--green); }
+  .sig-badge.SHORT { background: rgba(248,81,73,0.2);  color: var(--red);   }
+  .sig-badge.FLAT  { background: rgba(255,255,255,0.07); color: var(--muted); }
   #portfolio-loading { color: var(--muted); font-style: italic; padding: 12px 0; }
+  #next-refresh { color: var(--muted); font-size: 11px; }
 
   /* ── Log pane ────────────────────────────────────────────── */
   #log-pane {
@@ -319,7 +369,9 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <nav>
   <span class="brand">FXTS</span>
   <span class="subtitle" id="nav-subtitle">Connecting…</span>
-  <button class="primary" onclick="loadPortfolio()">&#8635; Refresh</button>
+  <span id="next-refresh"></span>
+  <button class="primary" onclick="fetchPrices()">&#8659; Fetch Prices</button>
+  <button onclick="loadPortfolio()">&#8635; Refresh</button>
   <button onclick="printPortfolio()">Print Portfolio</button>
   <button onclick="testDB()">Test DB</button>
   <div id="status-dot" title="Log stream"></div>
@@ -420,9 +472,13 @@ function renderPortfolio(data) {
     const priceHtml = fx.last_price
       ? `<div class="price-row">${escapeHtml(fx.last_price)}</div>` : '';
 
-    const sigHtml = eng.signal_generators.map(sg =>
-      `<span class="sig-chip" title="nMA6=${sg.nMA6} nMA6_1=${sg.nMA6_1}">${escapeHtml(sg.name)}</span>`
-    ).join('');
+    const sigHtml = eng.signal_generators.map(sg => {
+      const label = sg.signal === 1 ? 'LONG' : sg.signal === -1 ? 'SHORT' : 'FLAT';
+      const tip = `nMA6=${sg.nMA6} nMA6_1=${sg.nMA6_1}` +
+        (sg.fast_ma != null ? ` | fast=${sg.fast_ma} slow=${sg.slow_ma}` : '');
+      return `<span class="sig-chip" title="${tip}">${escapeHtml(sg.name)}` +
+             `<span class="sig-badge ${label}">${label}</span></span>`;
+    }).join('');
 
     html += `
       <div class="engine-card">
@@ -461,6 +517,29 @@ function testDB() {
     .then(d => toast(d.message || d.error, d.error ? 'err' : 'ok'));
 }
 
+function fetchPrices() {
+  toast('Fetching prices…');
+  fetch('/api/prices/refresh', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      toast(d.message || d.error, d.error ? 'err' : 'ok');
+      if (!d.error) loadPortfolio();
+    });
+}
+
+// Poll /api/scheduler/status every 30 s to show next scheduled refresh
+function updateNextRefresh() {
+  fetch('/api/scheduler/status')
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('next-refresh');
+      el.textContent = d.next_run ? 'Next fetch: ' + d.next_run : '';
+    })
+    .catch(() => {});
+}
+updateNextRefresh();
+setInterval(updateNextRefresh, 30000);
+
 // Init
 loadPortfolio();
 </script>
@@ -487,9 +566,12 @@ def api_portfolio():
         sig_gens = []
         for sg_name, sg in eng.sigGens.items():
             sig_gens.append({
-                'name': sg.signalName,
-                'nMA6': sg.nMA6,
-                'nMA6_1': sg.nMA6_1,
+                'name':    sg.signalName,
+                'nMA6':    sg.nMA6,
+                'nMA6_1':  sg.nMA6_1,
+                'signal':  getattr(sg, 'signal',  0),
+                'fast_ma': getattr(sg, 'fast_ma', None),
+                'slow_ma': getattr(sg, 'slow_ma', None),
             })
         fx_data = {
             'cross_name': fx.crossName if fx else '',
@@ -532,6 +614,24 @@ def api_db_test():
         return jsonify({'error': msg})
 
 
+@app.route('/api/prices/refresh', methods=['POST'])
+def api_prices_refresh():
+    if _portfolio is None:
+        return jsonify({'error': 'Portfolio not loaded'})
+    def _do():
+        _portfolio.refreshAllPrices()
+        _portfolio.refreshAllEntrySignals()
+    threading.Thread(target=_do, daemon=True).start()
+    return jsonify({'message': 'Price fetch and signal recalculation started'})
+
+
+@app.route('/api/scheduler/status')
+def api_scheduler_status():
+    if _next_run_utc:
+        return jsonify({'next_run': _next_run_utc.strftime('%H:%M UTC')})
+    return jsonify({'next_run': None})
+
+
 @app.route('/api/log/history')
 def api_log_history():
     return jsonify(list(_LOG_HISTORY))
@@ -568,13 +668,16 @@ def api_log_stream():
 # ---------------------------------------------------------------------------
 
 def load_portfolio():
-    """Load the portfolio from the database into the module-level _portfolio global.
-    Safe to call from any thread; typically run as a daemon thread on startup."""
+    """Load the portfolio then start the hourly price-refresh scheduler."""
     global _portfolio
     try:
         dbconn = db.FXDB(_write_log)
         _write_log("Loading Portfolio...")
         _portfolio = fxPf.FXPortfolio(_write_log, dbconn, _get_portfolio_name())
+        # Kick off signal calculation on the data already in HourlyData.csv
+        _portfolio.refreshAllEntrySignals()
+        # Schedule recurring hourly fetches
+        _schedule_next_refresh()
     except Exception as e:
         _write_log("Failed to load portfolio: %s\n%s" % (e, traceback.format_exc()),
                    status='E')

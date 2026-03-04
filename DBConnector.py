@@ -241,6 +241,34 @@ class FXDB():
             raise
 
     #===========================================================================
+    # loadLastHourlyTimestamp
+    #===========================================================================
+    def loadLastHourlyTimestamp(self, ticker):
+        """Return the latest bar datetime (UTC-naive) for ticker, or None."""
+        import datetime as _dt
+        rows = [r for r in self._read('HourlyData') if r.get('ticker') == ticker]
+        if not rows:
+            return None
+        latest = max(rows, key=lambda r: (r.get('Date', ''), r.get('Time', '')))
+        try:
+            return _dt.datetime.strptime(
+                '%s %s' % (latest['Date'], latest['Time']), '%Y-%m-%d %H:%M:%S')
+        except Exception:
+            return None
+
+    #===========================================================================
+    # storeHourlyBars
+    #===========================================================================
+    def storeHourlyBars(self, ticker, bars):
+        """Append a list of OHLC bar dicts to HourlyData.csv for the given ticker.
+
+        Each bar dict must contain: Date, Time, Open, High, Low, Close.
+        """
+        fieldnames = ['ticker', 'Date', 'Time', 'Open', 'High', 'Low', 'Close']
+        records = [{'ticker': ticker, **bar} for bar in bars]
+        self._append('HourlyData', records, fieldnames)
+
+    #===========================================================================
     # loadTFEngines
     #===========================================================================
     def loadTFEngines(self):

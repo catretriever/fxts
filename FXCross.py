@@ -1,109 +1,87 @@
-#FXCross.py - FX Cross Rate Instrument
-
-#import sys
+# FXCross.py - FX Cross Rate Instrument
+import configparser
+import os
+import traceback
 import numpy as np
-#===============================================================================
-# FXCross
-#===============================================================================
+
+
+def _get_price_elements():
+    cfg = configparser.ConfigParser()
+    cfg_path = os.path.join(os.path.dirname(__file__), 'config.ini')
+    cfg.read(cfg_path)
+    return int(os.environ.get('FXTS_PRICE_ELEMENTS', cfg.get('fxcross', 'price_elements', fallback='2000')))
+
+
 class FXCross():
-    #===========================================================================
-    # __init__
-    #===========================================================================
-    def __init__(self, log, dbconn,crossname):
-        self.logger=log
+    def __init__(self, log, dbconn, crossname):
+        self.logger = log
         self.conn = dbconn
         self.crossName = crossname
         self.BaseCcy = ''
         self.QuoteCcy = ''
-        self.prices = []
+        self.Scalar = None
         self.IP = ''
-        
-        self.logger("Initialising FXCross: %s" %self.crossName)
-        
+        self.prices = []
+
+        self.logger("Initialising FXCross: %s" % self.crossName)
+
         try:
             instrumentDetails = self.conn.loadFXCross(self.crossName)
-            
+            if instrumentDetails is None:
+                raise ValueError("No DB record found for FXCross: %s" % self.crossName)
+
             self.BaseCcy = instrumentDetails['BaseCcy']
             self.QuoteCcy = instrumentDetails['QuoteCcy']
-            self.prices = []
             self.Scalar = instrumentDetails['Scalar']
             self.IP = instrumentDetails['IP']
 
-            self.reloadPrices(2000)
-            self.logger('Loaded %s price Elements for %s' %(len(self.prices), self.crossName))
-        #self.engines = nothing
-        except:
-            self.logger("Failed to initialise Instrument: %s%s" %(self.BaseCcy,self.QuoteCcy))
-    
-    #===========================================================================
-    # getHighestHigh
-    #===========================================================================
+            self.reloadPrices(_get_price_elements())
+            self.logger("Loaded %s price elements for %s" % (len(self.prices), self.crossName))
+        except Exception as e:
+            self.logger("Failed to initialise FXCross [%s]: %s\n%s" % (self.crossName, e, traceback.format_exc()))
+
     def getHighestHigh(self, numElements):
-        c1, c2, c3, c4, c5, c6, c7 = zip(self.prices)
-        
-        npprices = np.asarray(c4)
-        candidate = npprices[5]
-        print candidate
-        
-    #===========================================================================
-    # getLowestLow
-    #===========================================================================
+        if not self.prices:
+            self.logger("getHighestHigh: no price data for %s" % self.crossName)
+            return None
+        highs = [row['High'] for row in self.prices[:numElements]]
+        return max(highs)
+
     def getLowestLow(self, numElements):
-        pass
-        
-    #===========================================================================
-    # getLastTimestamp
-    #===========================================================================
+        if not self.prices:
+            self.logger("getLowestLow: no price data for %s" % self.crossName)
+            return None
+        lows = [row['Low'] for row in self.prices[:numElements]]
+        return min(lows)
+
     def getLastTimestamp(self):
-        pass
-        
-    #===========================================================================
-    # getPricesForPeriod
-    #===========================================================================
+        if not self.prices:
+            return None
+        last = self.prices[-1]
+        return "%s %s" % (last['Date'], last['Time'])
+
     def getPricesForPeriod(self, numElements):
-        pass
-        
-    #===========================================================================
-    # appendPrice
-    #===========================================================================
-    def appendPrice(self,timestamp, O,H,L,C):
-        pass
-        
-    #===========================================================================
-    # insertPrice
-    #===========================================================================
-    def insertPrice(self, timestamp, O,H,L,C):
+        return self.prices[:numElements]
+
+    def appendPrice(self, timestamp, O, H, L, C):
         pass
 
-    #===========================================================================
-    # reloadPrices
-    #===========================================================================
+    def insertPrice(self, timestamp, O, H, L, C):
+        pass
+
     def reloadPrices(self, dataPeriod):
-        self.logger("Attempting to reload all prices for: %s%s" %(self.BaseCcy,self.QuoteCcy))
-
+        self.logger("Reloading prices for: %s" % self.crossName)
         try:
-            tmpPrices = []
             tmpPrices = self.conn.loadFXPrices(self.crossName, dataPeriod)
-            
             self.prices = tmpPrices
-            
-#            num_rows = len(tmpPrices)
-#            
-#            x = map(list,list(tmpPrices))
-#            x = sum(x, [])
-#            
-#            D = np.fromiter(iterable=x, dtype=float, count=-1)
-#            D = D.reshape(num_rows, -1)
-#            
-#            self.prices = D
-        except:
-            self.logger("Failed to re-load prices for: %s%s" %(self.BaseCcy,self.QuoteCcy))
-        
-    #===========================================================================
-    # printLastPrice
-    #===========================================================================
+        except Exception as e:
+            self.logger("Failed to reload prices for [%s]: %s\n%s" % (self.crossName, e, traceback.format_exc()))
+
     def printLastPrice(self):
-        lastPrice = self.prices[len(self.prices)-1] # remember arrays are base 0
-        outstr = 'Latest Price, %s: %s %s O[%s], H[%s], L[%s], C[%s]' %(self.crossName, lastPrice['Date'],lastPrice['Time'],lastPrice['Open'],lastPrice['High'],lastPrice['Low'],lastPrice['Close'])
-        return outstr
-    
+        if not self.prices:
+            return "No price data available for %s" % self.crossName
+        last = self.prices[-1]
+        return "Latest Price, %s: %s %s O[%s], H[%s], L[%s], C[%s]" % (
+            self.crossName, last['Date'], last['Time'],
+            last['Open'], last['High'], last['Low'], last['Close'],
+        )

@@ -345,6 +345,86 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .log-badge.W { color: var(--yellow); }
   .log-badge.E { color: var(--red); }
 
+  /* ── Chart button (inside engine card) ──────────────────── */
+  .chart-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 2px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .chart-btn:hover { background: var(--border); border-color: var(--accent); color: var(--accent); }
+
+  /* ── Chart modal ─────────────────────────────────────────── */
+  #chart-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.78);
+  }
+  #chart-modal.open { display: flex; }
+  #chart-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: min(96vw, 1140px);
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 28px 64px rgba(0,0,0,0.65);
+  }
+  #chart-header {
+    display: flex;
+    align-items: center;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  #chart-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  #chart-pills { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
+  #chart-close-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  #chart-close-btn:hover { background: var(--border); color: var(--text); }
+  #chart-area { flex: 1; min-height: 440px; background: #0d1117; }
+  #chart-legend {
+    padding: 7px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 11px;
+    font-family: monospace;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    flex-shrink: 0;
+    min-height: 30px;
+    align-items: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-swatch { width: 22px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+
   /* ── Toast ───────────────────────────────────────────────── */
   #toast {
     position: fixed;
@@ -392,6 +472,19 @@ _TEMPLATE = r"""<!DOCTYPE html>
 </main>
 
 <div id="toast"></div>
+
+<!-- ── Chart modal ──────────────────────────────────────────────────────── -->
+<div id="chart-modal">
+  <div id="chart-box">
+    <div id="chart-header">
+      <span id="chart-title"></span>
+      <div id="chart-pills"></div>
+      <button id="chart-close-btn" onclick="closeChart()">&#x2715; Close</button>
+    </div>
+    <div id="chart-area"></div>
+    <div id="chart-legend"></div>
+  </div>
+</div>
 
 <script>
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -485,6 +578,7 @@ function renderPortfolio(data) {
         <div class="engine-title">
           ${escapeHtml(eng.name)}
           <span class="badge">${escapeHtml(fx.cross_name || '')}</span>
+          <button class="chart-btn" onclick="openChart(${JSON.stringify(eng.name)}, ${JSON.stringify(fx.cross_name)})">&#128202; Chart</button>
         </div>
         <div class="kv-grid">
           <span class="k">Instrument</span>
@@ -525,6 +619,142 @@ function fetchPrices() {
       toast(d.message || d.error, d.error ? 'err' : 'ok');
       if (!d.error) loadPortfolio();
     });
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+
+const _LWC_CDN = 'https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
+let _lwcReady  = false;
+let _activeChart = null;
+const _MA_COLORS = ['#58a6ff','#d29922','#f97583','#bc8cff','#79c0ff','#ffa657'];
+
+function _loadLWC() {
+  if (_lwcReady) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = _LWC_CDN;
+    s.onload  = () => { _lwcReady = true; resolve(); };
+    s.onerror = ()  => reject(new Error('Chart library failed to load from CDN. Check network access.'));
+    document.head.appendChild(s);
+  });
+}
+
+function openChart(engineName, crossName) {
+  const modal = document.getElementById('chart-modal');
+  modal.classList.add('open');
+  document.getElementById('chart-title').textContent = engineName + '  ·  ' + crossName;
+  document.getElementById('chart-pills').innerHTML   = '';
+  document.getElementById('chart-legend').textContent = 'Loading chart data…';
+  document.getElementById('chart-area').innerHTML    = '';
+  if (_activeChart) { try { _activeChart.remove(); } catch(e) {} _activeChart = null; }
+
+  _loadLWC()
+    .then(() => fetch('/api/charts/' + encodeURIComponent(engineName)))
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
+      _renderChart(data);
+    })
+    .catch(err => {
+      document.getElementById('chart-area').innerHTML =
+        `<p style="color:var(--red);padding:24px;font-family:monospace;font-size:13px">${escapeHtml(String(err))}</p>`;
+      document.getElementById('chart-legend').textContent = '';
+    });
+}
+
+function closeChart() {
+  document.getElementById('chart-modal').classList.remove('open');
+  if (_activeChart) { try { _activeChart.remove(); } catch(e) {} _activeChart = null; }
+}
+
+document.getElementById('chart-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('chart-modal')) closeChart();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChart(); });
+
+function _renderChart(data) {
+  const area = document.getElementById('chart-area');
+  area.innerHTML = '';
+
+  const chart = LightweightCharts.createChart(area, {
+    width:  area.clientWidth,
+    height: area.clientHeight || 440,
+    layout:      { background: { type: 'solid', color: '#0d1117' }, textColor: '#c9d1d9' },
+    grid:        { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    crosshair:   { mode: LightweightCharts.CrosshairMode.Normal },
+    timeScale:   { timeVisible: true, secondsVisible: false, borderColor: '#30363d' },
+    rightPriceScale: { borderColor: '#30363d' },
+  });
+  _activeChart = chart;
+
+  // Keep chart filling the container when the window resizes
+  new ResizeObserver(() => {
+    chart.applyOptions({ width: area.clientWidth, height: area.clientHeight });
+  }).observe(area);
+
+  // Candlestick series
+  const cSeries = chart.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149',
+    borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor:   '#3fb950', wickDownColor:   '#f85149',
+  });
+  cSeries.setData(data.candles);
+
+  // MA line series + legend metadata
+  const legendMeta = [];
+  let colorIdx = 0;
+  const allLineSeries = [];
+
+  data.ma_series.forEach(sg => {
+    [['fast', sg.fast], ['slow', sg.slow]].forEach(([type, series]) => {
+      if (!series.data.length) return;
+      const color = _MA_COLORS[colorIdx++ % _MA_COLORS.length];
+      const label = `${sg.name} SMA(${series.period})`;
+      const ls = chart.addLineSeries({
+        color, lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: true, title: label,
+      });
+      ls.setData(series.data);
+      legendMeta.push({ label, color, series: ls });
+      allLineSeries.push({ ls, label, color });
+    });
+    // Signal pills in header
+    const lbl = sg.signal === 1 ? 'LONG' : sg.signal === -1 ? 'SHORT' : 'FLAT';
+    document.getElementById('chart-pills').innerHTML +=
+      `<span class="sig-badge ${lbl}" style="font-size:11px">${escapeHtml(sg.name)}: ${lbl}</span>`;
+  });
+
+  // Dynamic legend — updates on crosshair move
+  const legendEl = document.getElementById('chart-legend');
+
+  function setLegend(param) {
+    let html = '';
+    if (param && param.time) {
+      const c = param.seriesData && param.seriesData.get(cSeries);
+      if (c) html += `<span class="legend-item" style="color:var(--text)">
+        O&nbsp;<b>${c.open}</b>&nbsp; H&nbsp;<b>${c.high}</b>&nbsp; L&nbsp;<b>${c.low}</b>&nbsp; C&nbsp;<b>${c.close}</b>
+        </span>`;
+      allLineSeries.forEach(({ ls, label, color }) => {
+        const v = param.seriesData && param.seriesData.get(ls);
+        html += `<span class="legend-item">
+          <span class="legend-swatch" style="background:${color}"></span>
+          ${escapeHtml(label)}${v ? '&nbsp;<b>' + v.value.toFixed(5) + '</b>' : ''}
+          </span>`;
+      });
+    } else {
+      html = legendMeta.map(m =>
+        `<span class="legend-item">
+          <span class="legend-swatch" style="background:${m.color}"></span>
+          ${escapeHtml(m.label)}</span>`
+      ).join('');
+      if (!html) html = '<span style="color:var(--muted)">Move cursor over chart to inspect values</span>';
+    }
+    legendEl.innerHTML = html;
+  }
+
+  chart.subscribeCrosshairMove(setLegend);
+  setLegend(null);
+  chart.timeScale().fitContent();
 }
 
 // Poll /api/scheduler/status every 30 s to show next scheduled refresh
@@ -623,6 +853,62 @@ def api_prices_refresh():
         _portfolio.refreshAllEntrySignals()
     threading.Thread(target=_do, daemon=True).start()
     return jsonify({'message': 'Price fetch and signal recalculation started'})
+
+
+@app.route('/api/charts/<engine_name>')
+def api_chart(engine_name):
+    if _portfolio is None:
+        return jsonify({'error': 'Portfolio not loaded'})
+    eng = _portfolio.tEngines.get(engine_name)
+    if eng is None:
+        return jsonify({'error': 'Engine not found: %s' % engine_name})
+    fx = eng.instrument
+    if fx is None or not fx.prices:
+        return jsonify({'error': 'No price data for %s' % engine_name})
+
+    # prices is newest-first; reverse to oldest-first for the chart
+    prices = list(reversed(fx.prices))
+
+    candles = []
+    for p in prices:
+        try:
+            dt = datetime.datetime.strptime('%s %s' % (p['Date'], p['Time']),
+                                            '%Y-%m-%d %H:%M:%S')
+            candles.append({
+                'time':  int(dt.timestamp()),
+                'open':  float(p['Open']),
+                'high':  float(p['High']),
+                'low':   float(p['Low']),
+                'close': float(p['Close']),
+            })
+        except (ValueError, KeyError):
+            continue
+
+    closes = [c['close'] for c in candles]
+    times  = [c['time']  for c in candles]
+
+    # Rolling SMAs for every signal generator attached to this engine
+    ma_series = []
+    for sg_name, sg in eng.sigGens.items():
+        n_fast = int(sg.nMA6)
+        n_slow = int(sg.nMA6_1)
+        fast_data, slow_data = [], []
+        for i in range(len(closes)):
+            n = i + 1
+            if n >= n_fast:
+                fast_data.append({'time': times[i],
+                                  'value': round(sum(closes[i+1-n_fast:i+1]) / n_fast, 5)})
+            if n >= n_slow:
+                slow_data.append({'time': times[i],
+                                  'value': round(sum(closes[i+1-n_slow:i+1]) / n_slow, 5)})
+        ma_series.append({
+            'name':   sg_name,
+            'signal': getattr(sg, 'signal', 0),
+            'fast':   {'period': n_fast, 'data': fast_data},
+            'slow':   {'period': n_slow, 'data': slow_data},
+        })
+
+    return jsonify({'cross_name': fx.crossName, 'candles': candles, 'ma_series': ma_series})
 
 
 @app.route('/api/scheduler/status')

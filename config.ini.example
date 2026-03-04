@@ -1,0 +1,17 @@
+# FXTS configuration — copy to config.ini and fill in your values.
+# config.ini is listed in .gitignore and must never be committed.
+#
+# FXDB_DATA_DIR environment variable overrides the data_dir setting below.
+
+[database]
+# Path to the directory containing the CSV data files.
+# Defaults to the data/ subdirectory next to this file.
+data_dir = /path/to/fxts/data
+
+[portfolio]
+# Name must match a Portfolio value in MAP_Pfo_TEngine.csv
+name = FX Portfolio 1
+
+[fxcross]
+# Number of hourly bars to load per instrument at startup
+price_elements = 2000

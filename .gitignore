@@ -1,0 +1,9 @@
+# Credentials - never commit
+config.ini
+
+# Python bytecode
+*.pyc
+__pycache__/
+
+# Logs
+*.log

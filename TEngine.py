@@ -1,49 +1,42 @@
-#TEngine.py - Trading SYstem Class - where a Trading Engine is a combination of a market and 1-n Sig Generators
-
-#import sys
+# TEngine.py - Trading Engine Class
+# A Trading Engine combines one market instrument with 1-n signal generators.
+import traceback
 import FXCross
 import SignalTP
 
-#===============================================================================
-# TEngine
-#===============================================================================
+
 class TEngine():
-    #===========================================================================
-    # __init__
-    #===========================================================================
-    def __init__(self, log, dbconn,name):
-        self.logger=log
+    def __init__(self, log, dbconn, name):
+        self.logger = log
         self.conn = dbconn
         self.engineName = name
-        self.instrument = ''
+        self.instrument = None
         self.sigGens = dict()
-        
-        self.logger("Loading TEngine: %s" %(self.engineName))
-        
+
+        self.logger("Loading TEngine: %s" % self.engineName)
+
         try:
             engineDetails = self.conn.loadTEngine(self.engineName)
-            self.instrument = FXCross.FXCross(self.logger, self.conn,engineDetails['Instrument'])
+            if engineDetails is None:
+                raise ValueError("No DB record found for TEngine: %s" % self.engineName)
+
+            self.instrument = FXCross.FXCross(self.logger, self.conn, engineDetails['Instrument'])
+
             siggenmap = self.conn.loadMappedSigGens(self.engineName)
-            self.logger('Found %s signal generators for TEngine: %s' %(len(siggenmap), self.engineName))
+            self.logger("Found %s signal generators for TEngine: %s" % (len(siggenmap), self.engineName))
             for siggen in siggenmap:
                 self.sigGens[siggen['SigGen']] = SignalTP.SignalTP(self.logger, self.conn, siggen['SigGen'])
-        except:
-            self.logger("Failed to load details for TEngine: %s" %(self.engineName))                               
+        except Exception as e:
+            self.logger("Failed to load TEngine [%s]: %s\n%s" % (self.engineName, e, traceback.format_exc()))
 
-    #===========================================================================
-    # printEngine
-    #===========================================================================
     def printEngine(self):
-        self.logger('EngineName: %s, Instrument: %s' %(self.engineName,self.instrument.crossName))
+        if self.instrument is None:
+            self.logger("TEngine [%s] has no instrument loaded" % self.engineName)
+            return
+        self.logger("EngineName: %s, Instrument: %s" % (self.engineName, self.instrument.crossName))
         self.logger(self.instrument.printLastPrice())
-        for siggen in self.sigGens: 
+        for siggen in self.sigGens:
             self.sigGens[siggen].printSignal()
 
-    #===========================================================================
-    # refreshAllSignals
-    #===========================================================================
     def refreshAllSignals(self):
         pass
-        
-    #.......................................................................................................................
-

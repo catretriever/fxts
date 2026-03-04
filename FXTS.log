@@ -1,0 +1,36 @@
+20130117.221650 :-I-Starting...
+20130117.221650 :-I-db Connection established. Server version: 5.5.28-0ubuntu0.12.04.3
+20130117.221650 :-I-Loading Portfolio...
+20130117.221650 :-I-Loading Portfolio: [FX Portfolio 1]
+20130117.221650 :-I-calling loadMapped TEngines
+20130117.221650 :-I-Found 1 TEngines in Portfolio : FX Portfolio 1
+20130117.221650 :-I-Mapped Engine found: GBPJPY
+20130117.221650 :-I-Loading TEngine: GBPJPY
+20130117.221650 :-I-Initialising FXCross: GBPJPY
+20130117.221650 :-I-Select BaseCcy, QuoteCcy, Scalar, IP from FXCross where FXCross ="GBPJPY"
+20130117.221650 :-I-Attempting to reload all prices for: GBPJPY
+20130117.221650 :-I-SELECT  * FROM HourlyData WHERE ticker="GBPJPY" order by Date desc,Time desc limit 2000;
+20130117.221650 :-I-Loaded 2000 price Elements for GBPJPY
+20130117.221650 :-I-Found 1 signal generators for TEngine: GBPJPY
+20130117.221650 :-I-Loading SignalTP: GBPJPY_TP6
+20130117.221650 :-I-Finished Portfolio: [FX Portfolio 1]
+20130117.221709 :-I-Pfo Name: FX Portfolio 1
+20130117.221709 :-I-EngineName: GBPJPY, Instrument: GBPJPY
+20130117.221709 :-I-Latest Price, GBPJPY: 2002-02-05 14:00:00 O[189.440000], H[189.840000], L[189.300000], C[189.840000]
+20130117.221709 :-I-SignalName: GBPJPY_TP6, nMA6: 0.0145680005127936, nMA6_1: 0.0289253090669274
+20130117.223933 :-I-Starting...
+20130117.223933 :-I-db Connection established. Server version: 5.5.28-0ubuntu0.12.04.3
+20130117.223933 :-I-Loading Portfolio...
+20130117.223933 :-I-Loading Portfolio: [FX Portfolio 1]
+20130117.223933 :-I-calling loadMapped TEngines
+20130117.223933 :-I-Found 1 TEngines in Portfolio : FX Portfolio 1
+20130117.223933 :-I-Mapped Engine found: GBPJPY
+20130117.223933 :-I-Loading TEngine: GBPJPY
+20130117.223933 :-I-Initialising FXCross: GBPJPY
+20130117.223933 :-I-Select BaseCcy, QuoteCcy, Scalar, IP from FXCross where FXCross ="GBPJPY"
+20130117.223933 :-I-Attempting to reload all prices for: GBPJPY
+20130117.223933 :-I-SELECT  * FROM HourlyData WHERE ticker="GBPJPY" order by Date desc,Time desc limit 2000;
+20130117.223933 :-I-Loaded 2000 price Elements for GBPJPY
+20130117.223933 :-I-Found 1 signal generators for TEngine: GBPJPY
+20130117.223933 :-I-Loading SignalTP: GBPJPY_TP6
+20130117.223933 :-I-Finished Portfolio: [FX Portfolio 1]

@@ -27,7 +27,7 @@ import traceback
 import webbrowser
 import argparse
 
-from flask import Flask, Response, jsonify, render_template_string
+from flask import Flask, Response, jsonify, render_template_string, send_from_directory
 
 import DBConnector as db
 import FXPortfolio as fxPf
@@ -90,6 +90,14 @@ def _write_log(message, status='I'):
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'fxts-dev'
+
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(_STATIC_DIR, filename)
+
 
 # ---------------------------------------------------------------------------
 # Hourly price-refresh scheduler
@@ -578,7 +586,7 @@ function renderPortfolio(data) {
         <div class="engine-title">
           ${escapeHtml(eng.name)}
           <span class="badge">${escapeHtml(fx.cross_name || '')}</span>
-          <button class="chart-btn" onclick="openChart(${JSON.stringify(eng.name)}, ${JSON.stringify(fx.cross_name)})">&#128202; Chart</button>
+          <button class="chart-btn" data-engine="${escapeHtml(eng.name)}" data-cross="${escapeHtml(fx.cross_name || '')}" onclick="openChart(this.dataset.engine, this.dataset.cross)">&#128202; Chart</button>
         </div>
         <div class="kv-grid">
           <span class="k">Instrument</span>
@@ -623,7 +631,7 @@ function fetchPrices() {
 
 // ── Chart ─────────────────────────────────────────────────────────────────────
 
-const _LWC_CDN = 'https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
+const _LWC_CDN = '/static/lightweight-charts.standalone.production.js';
 let _lwcReady  = false;
 let _activeChart = null;
 const _MA_COLORS = ['#58a6ff','#d29922','#f97583','#bc8cff','#79c0ff','#ffa657'];

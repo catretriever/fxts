@@ -586,7 +586,7 @@ function renderPortfolio(data) {
         <div class="engine-title">
           ${escapeHtml(eng.name)}
           <span class="badge">${escapeHtml(fx.cross_name || '')}</span>
-          <button class="chart-btn" onclick="openChart(${JSON.stringify(eng.name)}, ${JSON.stringify(fx.cross_name)})">&#128202; Chart</button>
+          <button class="chart-btn" data-engine="${escapeHtml(eng.name)}" data-cross="${escapeHtml(fx.cross_name || '')}" onclick="openChart(this.dataset.engine, this.dataset.cross)">&#128202; Chart</button>
         </div>
         <div class="kv-grid">
           <span class="k">Instrument</span>
